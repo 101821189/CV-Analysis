@@ -65,7 +65,7 @@ def index():
 def process():
     if request.method == 'POST':
         f = request.files['cvfile']
-        
+
         #PDF Preview
         pdfstring = base64.b64encode(f.read())
         pdfstring = pdfstring.decode('ascii')
@@ -74,13 +74,13 @@ def process():
         filename = "File name: " + f.filename
         filesize = "File size: " + str(int(len(f.read())/1024)) + "kb"
         text = extract_text_from_pdf(f)
-        
+
         global list2_score
         #scoring system
         if int(len(f.read())/1024) > 20000:
             list2_score[2] = True
         else:
-            list2_score[2] = False 
+            list2_score[2] = False
 
         #Word count metrics
         word_count_num = len(text.split())
@@ -90,7 +90,7 @@ def process():
         if word_count_num > 2000:
             list2_score[7] = True
         else:
-            list2_score[7] = False 
+            list2_score[7] = False
 
         #Spellchecker
         spellcheck = spellchecker(text)
@@ -135,18 +135,18 @@ def spellchecker(text):
         cleanString = re.sub('\W+','', m)
         shortenedWords.append(reduce_lengthening(cleanString))
 
-    cleanList = shortenedWords.copy()    
+    cleanList = shortenedWords.copy()
 
     output = "You may have misspelled the following words: " + '\n' + ', '.join(cleanList)
-        output = "You may have misspelled the following words: " + '\n' + ', '.join(cleanList)   
+        output = "You may have misspelled the following words: " + '\n' + ', '.join(cleanList)
     output = "You may have misspelled the following words: " + '\n' + ', '.join(cleanList)
-    
+
     global list2_score
     #scoring system
     if cleanList:
         list2_score[6] = False
     else:
-        list2_score[6] = True 
+        list2_score[6] = True
 
     return output
 
@@ -168,13 +168,13 @@ def bulletPointCounter(text):
 
     return [bulletPointList, bulletPointCount, processed]
 
-    
+
 
 #firstPersonSentiment
 def firstPersonSentiment(text):
     textClone = nltk.word_tokenize(text)
     textCloneTag= nltk.pos_tag(textClone)
-    
+
     tagged_sent = textCloneTag
     tagged_sent_str = ' '.join([word + '/' + pos for word, pos in tagged_sent])
 
@@ -192,12 +192,12 @@ def firstPersonSentiment(text):
     if countFirstPerson > 5:
         list2_score[0] = True
     else:
-        list2_score[0] = False 
-    
+        list2_score[0] = False
+
     if countActionVerb > 5 and countNoun > 5:
         list2_score[1] = True
     else:
-        list2_score[1] = False 
+        list2_score[1] = False
 
     return [processed, nounverb]
 
@@ -253,13 +253,13 @@ def word_filter(dictObject):
     new_counts = dict()
     for(key, value) in dictObject.items():
         if value >= 5: new_counts[key] = value
- 
+
     return new_counts
 
 def word_match(key,list,li,score,output):
     for x in list:
         if fuzz.token_sort_ratio(key.lower(),x.lower()) > 80:
-            li = False          
+            li = False
             print(output + " achieved!!!")
             print(fuzz.token_sort_ratio(key.lower(),x.lower()))
             print(key)
@@ -269,7 +269,7 @@ def word_match(key,list,li,score,output):
             break
         else:
             result = output + ": not included"
-    return li,score,result    
+    return li,score,result
 
 
 # word_matching is used for essential part
@@ -296,10 +296,10 @@ def word_matching(dictObject):
 
         if li2:
             li2,score,result[2] = word_match(key,list2,li2,score,"education")
-                
+
         if li3:
             li3,score,result[3] = word_match(key,list3,li3,score,"Employment History")
-            
+
         if li4:
             li4,score,result[4] = word_match(key,list4,li4,score,"Skill")
 
@@ -314,16 +314,16 @@ def word_matching(dictObject):
 # word_match_Softskill is used for softskill part
 # the function will only approved the resume have the specific skill when more than half of word from the list is found in the resume
 def word_match_Softskill(key,list,li,score,output,counter):
-    final_output = "" 
+    final_output = ""
     for x in list:
         if fuzz.token_sort_ratio(key.lower(),x.lower()) > 80:
-            counter= counter + 1                  
+            counter= counter + 1
             print(fuzz.token_sort_ratio(key.lower(),x.lower()))
             print(key)
             break
-            
+
         if counter >= (len(list)/3):
-            li = False    
+            li = False
             score += 1
             print("score: ", score)
             final_output = output[0]
@@ -331,7 +331,7 @@ def word_match_Softskill(key,list,li,score,output,counter):
         else:
             final_output = output[1]
 
-    return li,score,final_output,counter 
+    return li,score,final_output,counter
 
 def word_matching_Softskill(dictObject):
     # dictObject variable must come from word_frequency result
@@ -354,13 +354,13 @@ def word_matching_Softskill(dictObject):
         #print(key)
         if li1:
             li1,score,result[1],counter1 = word_match_Softskill(key,listCommunication,li1,score,output_Communication,counter1)
-        
+
         if li2:
             li2,score,result[2],counter2 = word_match_Softskill(key,listLeadership,li2,score,output_Leadership,counter2)
-        
+
         if li3:
             li3,score,result[3],counter3 = word_match_Softskill(key,listTeamwork,li3,score,output_Teamwork,counter3)
-    
+
     global scored_list
     scored_list[1] = section_Scored([4,4,4], [li1, li2, li3])*100
     result[0] = "Total score: " + str(scored_list[1])
