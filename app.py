@@ -122,12 +122,6 @@ def process():
         word_count = "Word Count: " + str(word_count_num)
 
         #Four factors
-        impact = [filename, filesize, word_count, fps[0], fps[1]]
-        brevity = [spellcheck, bpCounter, word_count_result, word_count_num]
-        style = essential_section
-        soft_skills = word_matching_Softskill(word_frequency(text))
-
-        return render_template("result.html", impact=impact, brevity=brevity, style=style, soft_skills=soft_skills, pdfstring=pdfstring)
         impact = [0, filename, filesize, word_count, fps[0], fps[1]]
         brevity = [0, spellcheck[0], bpCounter[2], word_count_result, bpQuantify]
         style = [essential_section[0],essential_section[1],essential_section[2],essential_section[3],date]
