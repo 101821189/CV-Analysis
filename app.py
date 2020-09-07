@@ -1,59 +1,31 @@
-#PDF Lib
-import io
-import pdfminer
-from pdfminer.converter import *
-from pdfminer.pdfinterp import PDFPageInterpreter
-from pdfminer.pdfinterp import PDFResourceManager
-from pdfminer.layout import LAParams
-from pdfminer.converter import PDFPageAggregator
-from pdfminer.pdfparser import PDFParser
-from pdfminer.pdfdocument import PDFDocument
-from pdfminer.pdfpage import PDFPage
-from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
-from pdfminer.converter import PDFPageAggregator
-from pdfminer.layout import LAParams, LTTextBox, LTTextLine
-from pdfminer.pdfdevice import PDFDevice
-import PyPDF2
 import string
 
-import io
-from matplotlib.figure import Figure
-import base64
+###External functions
+#TextProcessor
+from TextProcessor import filterHiddenText, extractTextFromPDF, highlightText
+#Date finder sorter
+from DateSorter import DateSorter
+#Spellchecker
+from Spellchecker import spellchecker
+#Word processing
+from WordProcessor import word_filter, word_frequency, word_metric
+#Bullet point processing
+from BulletPointProcessor import quantifyBulletPoints, bulletPointCounter
+#First Personal Sentiment
+from FirstPersonalSentiment import firstPersonSentiment
+#Word matching
+from WordMatching import word_matching
 
-#Grammar & Spelling Lib
-import pylanguagetool
-import nltk
-
-#Regular Expressionn
-import re
-
-#PyMuPDFf
-import fitz
-
-#date finder sorter
-from datetime import datetime
-
-
-from spellchecker import SpellChecker
+# from matplotlib.figure import Figure
 
 # Flask initialization
 from flask import *
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_sslify import SSLify
-from nltk.tokenize import PunktSentenceTokenizer
-nltk.download('averaged_perceptron_tagger')
 
-nltk.download('punkt')
-
-# fuzzywuzzy lib
-from fuzzywuzzy import fuzz
-
-# base64 encode
+#base64
 import base64
-
-# itemgetter
-from operator import itemgetter
 
 app = Flask(__name__)
 #sslify = SSLify(app)
@@ -62,9 +34,7 @@ app = Flask(__name__)
 cors = CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 #global variable for scoring system
-list1_score = ["2", "1", "3", "4", "4", "2", "3", "4"]
-list2_score = [True, True, True, True, True, True, True, True]
-scored_list = ["", ""]
+import ListScore
 
 @app.route('/')
 def index():
@@ -75,7 +45,7 @@ def index():
 def process():
     if request.method == 'POST':
         f = request.files['cvfile']
-        
+
         #PDF Preview
         pdfstring = base64.b64encode(f.read())
         pdfstring = pdfstring.decode('ascii')
@@ -83,14 +53,17 @@ def process():
         f.seek(0)
         filename = "File name: " + f.filename
         filesize = "File size: " + str(int(len(f.read())/1024)) + "kb"
-        text = extract_text_from_pdf(f)
+        text = extractTextFromPDF(f)
 
-        global list2_score
+        # Filter invisible text
+        invisible_text = filterHiddenText(f)
+        print(invisible_text)
+
         #scoring system
         if int(len(f.read())/1024) > 20000:
-            list2_score[2] = True
+            ListScore.list2_score[2] = True
         else:
-            list2_score[2] = False 
+            ListScore.list2_score[2] = False
 
         #Word count metrics
         word_count_num = len(text.split())
@@ -98,9 +71,9 @@ def process():
 
         #scoring system
         if word_count_num > 2000:
-            list2_score[7] = True
+            ListScore.list2_score[7] = True
         else:
-            list2_score[7] = False 
+            ListScore.list2_score[7] = False
 
         #Spellchecker
         spellcheck = spellchecker(text)
@@ -112,7 +85,7 @@ def process():
         bpQuantify = quantifyBulletPoints(text)
 
         #datefinder
-        date = datefindersorter(text)
+        datesorter = DateSorter()
 
         #firstPersonSentiment
         fps = firstPersonSentiment(text)
@@ -129,10 +102,10 @@ def process():
         soft_skills = word_matching_Softskill(word_frequency(text))
         length = [len(impact), len(brevity), len(style), len(soft_skills)]
         print("final overall scored:",final_overall_scored(),"%")
-        
+
         #Highlighted files
         pdfstrings = []
-        pdfstrings.append(pdfstring) #Original file
+        pdfstrings.append(pdfstring)  # Original file
         pdfstrings.append(highlightText(spellcheck[1], f, (1, 0, 0)))
         pdfstrings.append(highlightText(essential_section[6], f, (0, 1, 0)))
 
@@ -158,19 +131,19 @@ def spellchecker(text):
         cleanString = re.sub('\W+','', m)
         shortenedWords.append(reduce_lengthening(cleanString))
 
-    cleanList = shortenedWords.copy()    
+    cleanList = shortenedWords.copy()
 
     if not cleanList:
         output = "Your resume is free of spelling errors! Congratulations!"
     else:
-        output = "You may have misspelled the following words: " + '\n' + ', '.join(cleanList)   
-    
+        output = "You may have misspelled the following words: " + '\n' + ', '.join(cleanList)
+
     global list2_score
     #scoring system
     if cleanList:
         list2_score[6] = False
     else:
-        list2_score[6] = True 
+        list2_score[6] = True
 
     return [output, cleanList]
 
@@ -182,7 +155,7 @@ def bulletPointCounter(text):
     bulletPointCount = len(bulletPointList)
 
     processed = "Your CV has " + str(bulletPointCount) + " total bullet points."
-    
+
     global list2_score
     #scoring system
     if bulletPointCount >= 0:
@@ -194,7 +167,7 @@ def bulletPointCounter(text):
 
 # Quantify bullet points
 def quantifyBulletPoints(text):
-    
+
     # 1. Extract content of bullet points
     bp = bulletPointCounter(text)
     contentList = []
@@ -209,7 +182,7 @@ def quantifyBulletPoints(text):
 
     quantifyRegEx = r'\b[^.,/a-zA-Z\-+\]](\d+)(?!\.|,)\b'
     clonedList = contentList[0].copy()
-    
+
     for i in clonedList:
         if(re.search(quantifyRegEx,i)):
             quantifiedCount += 1
@@ -223,7 +196,7 @@ def quantifyBulletPoints(text):
 def firstPersonSentiment(text):
     textClone = nltk.word_tokenize(text)
     textCloneTag= nltk.pos_tag(textClone)
-    
+
     tagged_sent = textCloneTag
     tagged_sent_str = ' '.join([word + '/' + pos for word, pos in tagged_sent])
 
@@ -241,12 +214,12 @@ def firstPersonSentiment(text):
     if countFirstPerson > 5:
         list2_score[0] = True
     else:
-        list2_score[0] = False 
-    
+        list2_score[0] = False
+
     if countActionVerb > 5 and countNoun > 5:
         list2_score[1] = True
     else:
-        list2_score[1] = False 
+        list2_score[1] = False
 
     return [processed, nounverb]
 
@@ -254,7 +227,7 @@ def datefindersorter(text):
     result= "Your dates are in the correct order on your CV." #score up?
     badresult="Your dates are not in the correct yearly order. Employers like to see the most recent work and study experience first." #score down?
     monthresult ="Your dates are not in the correct monthly order. Employers like to see the most recent work and study experience first." #score down?
-    
+
     regex1 = r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s\d{4}'
     regex2 = r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s\d{2}'
     regex3 = r'(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s\d{4}'
@@ -271,9 +244,9 @@ def datefindersorter(text):
     regex14 = r'[\d]{4}'
 
 
-    
-   
-    
+
+
+
     dates1 = re.findall(regex1, text)
     dates2 = re.findall(regex2, text)
     dates3 = re.findall(regex3, text)
@@ -288,7 +261,7 @@ def datefindersorter(text):
     dates12 = re.findall(regex12, text)
     #dates13 = re.findall(regex13, text)
     dates14 = re.findall(regex14, text)
-    
+
 
 
     if dates1:
@@ -300,33 +273,33 @@ def datefindersorter(text):
         num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[0]))
         second_num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[1]))
 
-        
-        month_list= splitted_list[0][1] 
+
+        month_list= splitted_list[0][1]
         second_month_list= splitted_list[1][0]
-        both_months=[] 
+        both_months=[]
         both_months.append(month_list)
         both_months.append(second_month_list)
         flag=0
 
         both_months2=both_months.copy()
-        
+
         both_months_sorted = both_months2.sort(key = lambda date:datetime.strptime(date, '%B %Y')) #this format changes
 
-        
-            
+
+
         if (both_months == both_months2):
             flag=0
         elif (both_months != both_months2):
             flag=1
-        
-        
-    
-        if (num_list[1] > second_num_list[0]): 
-            return result 
+
+
+
+        if (num_list[1] > second_num_list[0]):
+            return result
         elif (num_list[1] == second_num_list[0]) &  (flag == 0):
             return  monthresult
         elif (num_list[1] == second_num_list[0]) &  (flag == 1):
-            return result 
+            return result
         else:
             return badresult
 
@@ -339,35 +312,35 @@ def datefindersorter(text):
         num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[0]))
         second_num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[1]))
 
-        
-        month_list= splitted_list[0][1] 
+
+        month_list= splitted_list[0][1]
         second_month_list= splitted_list[1][0]
-        both_months=[] 
+        both_months=[]
         both_months.append(month_list)
         both_months.append(second_month_list)
         flag=0
 
-        
-        
+
+
         both_months2=both_months.copy()
-        
+
         both_months_sorted = both_months2.sort(key = lambda date:datetime.strptime(date, '%B %y')) #this format changes
 
-        
-            
+
+
         if (both_months == both_months2):
             flag=0
         elif (both_months != both_months2):
             flag=1
-        
-        
-    
-        if (num_list[1] > second_num_list[0]): 
-            return result 
+
+
+
+        if (num_list[1] > second_num_list[0]):
+            return result
         elif (num_list[1] == second_num_list[0]) &  (flag == 0):
             return  monthresult
         elif (num_list[1] == second_num_list[0]) &  (flag == 1):
-            return result 
+            return result
         else:
             return badresult
 
@@ -380,35 +353,35 @@ def datefindersorter(text):
         num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[0]))
         second_num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[1]))
 
-        
-        month_list= splitted_list[0][1] 
+
+        month_list= splitted_list[0][1]
         second_month_list= splitted_list[1][0]
-        both_months=[] 
+        both_months=[]
         both_months.append(month_list)
         both_months.append(second_month_list)
         flag=0
 
-        
-        
+
+
         both_months2=both_months.copy()
-        
+
         both_months_sorted = both_months2.sort(key = lambda date:datetime.strptime(date, '%b %Y')) #this format changes
 
-        
-            
+
+
         if (both_months == both_months2):
             flag=0
         elif (both_months != both_months2):
             flag=1
-        
-        
-    
-        if (num_list[1] > second_num_list[0]): 
-            return result 
+
+
+
+        if (num_list[1] > second_num_list[0]):
+            return result
         elif (num_list[1] == second_num_list[0]) &  (flag == 0):
             return  monthresult
         elif (num_list[1] == second_num_list[0]) &  (flag == 1):
-            return result 
+            return result
         else:
             return badresult
 
@@ -421,40 +394,40 @@ def datefindersorter(text):
         num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[0]))
         second_num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[1]))
 
-        
-        month_list= splitted_list[0][1] 
+
+        month_list= splitted_list[0][1]
         second_month_list= splitted_list[1][0]
-        both_months=[] 
+        both_months=[]
         both_months.append(month_list)
         both_months.append(second_month_list)
         flag=0
 
-        
-        
+
+
         both_months2=both_months.copy()
-        
+
         both_months_sorted = both_months2.sort(key = lambda date:datetime.strptime(date, '%b %y')) #this format changes
 
-        
-            
+
+
         if (both_months == both_months2):
             flag=0
         elif (both_months != both_months2):
             flag=1
-        
-        
-    
-        if (num_list[1] > second_num_list[0]): 
-            return result 
+
+
+
+        if (num_list[1] > second_num_list[0]):
+            return result
         elif (num_list[1] == second_num_list[0]) &  (flag == 0):
             return  monthresult
         elif (num_list[1] == second_num_list[0]) &  (flag == 1):
-            return result 
+            return result
         else:
             return badresult
 
     if dates5:
-        
+
         def split_list(x):
             return [dates5[i:i+x] for i in range(0, len(dates5), x)]
 
@@ -462,40 +435,40 @@ def datefindersorter(text):
         num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[0]))
         second_num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[1]))
 
-        
-        month_list= splitted_list[0][1] 
+
+        month_list= splitted_list[0][1]
         second_month_list= splitted_list[1][0]
-        both_months=[] 
+        both_months=[]
         both_months.append(month_list)
         both_months.append(second_month_list)
         flag=0
 
-        
-        
+
+
         both_months2=both_months.copy()
-        
-        
-            
+
+
+
         both_months_sorted = both_months2.sort(key = lambda date:datetime.strptime(date, '%B %Y')) #this format changes
-       
-        
-            
+
+
+
         if (both_months == both_months2):
             flag=0
         elif (both_months != both_months2):
             flag=1
-        
-        
-    
-        if (num_list[1] > second_num_list[0]): 
-            return result 
+
+
+
+        if (num_list[1] > second_num_list[0]):
+            return result
         elif (num_list[1] == second_num_list[0]) &  (flag == 0):
             return  monthresult
         elif (num_list[1] == second_num_list[0]) &  (flag == 1):
-            return result 
+            return result
         else:
             return badresult
-    
+
     if dates6:
 
         def split_list(x):
@@ -505,39 +478,39 @@ def datefindersorter(text):
         num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[0]))
         second_num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[1]))
 
-        
-        month_list= splitted_list[0][1] 
+
+        month_list= splitted_list[0][1]
         second_month_list= splitted_list[1][0]
-        both_months=[] 
+        both_months=[]
         both_months.append(month_list)
         both_months.append(second_month_list)
         flag=0
 
-        
-        
+
+
         both_months2=both_months.copy()
-        
+
         both_months_sorted = both_months2.sort(key = lambda date:datetime.strptime(date, '%B %y')) #this format changes
 
-        
-            
+
+
         if (both_months == both_months2):
             flag=0
         elif (both_months != both_months2):
             flag=1
-        
-        
-    
-        if (num_list[1] > second_num_list[0]): 
-            return result 
+
+
+
+        if (num_list[1] > second_num_list[0]):
+            return result
         elif (num_list[1] == second_num_list[0]) &  (flag == 0):
             return  monthresult
         elif (num_list[1] == second_num_list[0]) &  (flag == 1):
-            return result 
+            return result
         else:
             return badresult
 
-            
+
     if dates7:
 
         def split_list(x):
@@ -547,71 +520,71 @@ def datefindersorter(text):
         num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[0]))
         second_num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[1]))
 
-        
-        month_list= splitted_list[0][1] 
+
+        month_list= splitted_list[0][1]
         second_month_list= splitted_list[1][0]
-        both_months=[] 
+        both_months=[]
         both_months.append(month_list)
         both_months.append(second_month_list)
         flag=0
 
-        
-        
+
+
         both_months2=both_months.copy()
-        
+
         both_months_sorted = both_months2.sort(key = lambda date:datetime.strptime(date, '%B %y')) #this format changes
 
-        
-            
+
+
         if (both_months == both_months2):
             flag=0
         elif (both_months != both_months2):
             flag=1
-        
-        
-    
-        if (num_list[1] > second_num_list[0]): 
-            return result 
+
+
+
+        if (num_list[1] > second_num_list[0]):
+            return result
         elif (num_list[1] == second_num_list[0]) &  (flag == 0):
             return  monthresult
         elif (num_list[1] == second_num_list[0]) &  (flag == 1):
-            return result 
+            return result
         else:
             return badresult
 
-        
+
     if dates8:
-        
+
         def split_list(x):
             return [dates8[i:i+x] for i in range(0, len(dates8), x)]
 
         splitted_list = split_list(2)
-        
-        
+
+
         num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[0]))
         second_num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[1]))
 
-        
-        month_list= splitted_list[0][1] 
+
+        month_list= splitted_list[0][1]
         second_month_list= splitted_list[1][0]
-        both_months=[] 
+        both_months=[]
         both_months.append(month_list)
         both_months.append(second_month_list)
         flag=0
 
-        
-        
+
+
         both_months2=both_months.copy()
         both_months3=both_months.copy()
         try:
-            
-        
+
+
             both_months_sorted = both_months2.sort(key = lambda date:datetime.strptime(date, '%B %Y')) #this format changes
 
         except:
             both_months_sorted2 = both_months3.sort(key = lambda date:datetime.strptime(date, '%b %Y'))
-            
-            
+
+
         if (both_months == both_months2):
             flag=0
         elif (both_months != both_months2):
@@ -620,16 +593,16 @@ def datefindersorter(text):
         elif (both_months == both_months3):
             flag=0
         elif (both_months != both_months3):
-            flag=1    
-        
-        
-    
-        if (num_list[1] > second_num_list[0]): 
-            return result 
+            flag=1
+
+
+
+        if (num_list[1] > second_num_list[0]):
+            return result
         elif (num_list[1] == second_num_list[0]) &  (flag == 0):
             return  monthresult
         elif (num_list[1] == second_num_list[0]) &  (flag == 1):
-            return result 
+            return result
         else:
             return badresult
 
@@ -642,35 +615,35 @@ def datefindersorter(text):
         num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[0]))
         second_num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[1]))
 
-        
-        month_list= splitted_list[0][1] 
+
+        month_list= splitted_list[0][1]
         second_month_list= splitted_list[1][0]
-        both_months=[] 
+        both_months=[]
         both_months.append(month_list)
         both_months.append(second_month_list)
         flag=0
 
-        
-        
+
+
         both_months2=both_months.copy()
-        
+
         both_months_sorted = both_months2.sort(key = lambda date:datetime.strptime(date, '%b %Y')) #this format changes
 
-        
-            
+
+
         if (both_months == both_months2):
             flag=0
         elif (both_months != both_months2):
             flag=1
-        
-        
-    
-        if (num_list[1] > second_num_list[0]): 
-            return result 
+
+
+
+        if (num_list[1] > second_num_list[0]):
+            return result
         elif (num_list[1] == second_num_list[0]) &  (flag == 0):
             return  monthresult
         elif (num_list[1] == second_num_list[0]) &  (flag == 1):
-            return result 
+            return result
         else:
             return badresult
 
@@ -683,35 +656,35 @@ def datefindersorter(text):
         num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[0]))
         second_num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[1]))
 
-        
-        month_list= splitted_list[0][1] 
+
+        month_list= splitted_list[0][1]
         second_month_list= splitted_list[1][0]
-        both_months=[] 
+        both_months=[]
         both_months.append(month_list)
         both_months.append(second_month_list)
         flag=0
 
-        
-        
+
+
         both_months2=both_months.copy()
-        
+
         both_months_sorted = both_months2.sort(key = lambda date:datetime.strptime(date, '%b %y')) #this format changes
 
-        
-            
+
+
         if (both_months == both_months2):
             flag=0
         elif (both_months != both_months2):
             flag=1
-        
-        
-    
-        if (num_list[1] > second_num_list[0]): 
-            return result 
+
+
+
+        if (num_list[1] > second_num_list[0]):
+            return result
         elif (num_list[1] == second_num_list[0]) &  (flag == 0):
             return  monthresult
         elif (num_list[1] == second_num_list[0]) &  (flag == 1):
-            return result 
+            return result
         else:
             return badresult
 
@@ -724,38 +697,38 @@ def datefindersorter(text):
         num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[0]))
         second_num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[1]))
 
-        
-        month_list= splitted_list[0][1] 
+
+        month_list= splitted_list[0][1]
         second_month_list= splitted_list[1][0]
-        both_months=[] 
+        both_months=[]
         both_months.append(month_list)
         both_months.append(second_month_list)
         flag=0
 
-        
-        
+
+
         both_months2=both_months.copy()
-        
+
         both_months_sorted = both_months2.sort(key = lambda date:datetime.strptime(date, '%x')) #this format changes
 
-        
-            
+
+
         if (both_months == both_months2):
             flag=0
         elif (both_months != both_months2):
             flag=1
-        
-        
-    
-        if (num_list[1] > second_num_list[0]): 
-            return result 
+
+
+
+        if (num_list[1] > second_num_list[0]):
+            return result
         elif (num_list[1] == second_num_list[0]) &  (flag == 0):
             return  monthresult
         elif (num_list[1] == second_num_list[0]) &  (flag == 1):
-            return result 
+            return result
         else:
             return badresult
-        
+
     if dates12:
 
         def split_list(x):
@@ -765,41 +738,41 @@ def datefindersorter(text):
         num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[0]))
         second_num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[1]))
 
-        
-        month_list= splitted_list[0][1] 
+
+        month_list= splitted_list[0][1]
         second_month_list= splitted_list[1][0]
-        both_months=[] 
+        both_months=[]
         both_months.append(month_list)
         both_months.append(second_month_list)
         flag=0
 
-        
-        
+
+
         both_months2=both_months.copy()
-        
+
         both_months_sorted = both_months2.sort(key = lambda date:datetime.strptime(date, '%d-%m-%Y ')) #this format changes
 
-        
-            
+
+
         if (both_months == both_months2):
             flag=0
         elif (both_months != both_months2):
             flag=1
-        
-        
-    
-        if (num_list[1] > second_num_list[0]): 
-            return result 
+
+
+
+        if (num_list[1] > second_num_list[0]):
+            return result
         elif (num_list[1] == second_num_list[0]) &  (flag == 0):
             return  monthresult
         elif (num_list[1] == second_num_list[0]) &  (flag == 1):
-            return result 
+            return result
         else:
             return badresult
-        
-      
-     
-    
+
+
+
+
 
     if dates14:
 
@@ -810,35 +783,35 @@ def datefindersorter(text):
         num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[0]))
         second_num_list = list(map(lambda sub:int(''.join([ele for ele in sub if ele.isnumeric()])),splitted_list[1]))
 
-        
-        month_list= splitted_list[0][1] 
+
+        month_list= splitted_list[0][1]
         second_month_list= splitted_list[1][0]
-        both_months=[] 
+        both_months=[]
         both_months.append(month_list)
         both_months.append(second_month_list)
         flag=0
 
-        
-        
+
+
         both_months2=both_months.copy()
-        
+
         both_months_sorted = both_months2.sort(key = lambda date:datetime.strptime(date, '%Y')) #this format changes
 
-        
-            
+
+
         if (both_months == both_months2):
             flag=0
         elif (both_months != both_months2):
             flag=1
-        
-        
-    
-        if (num_list[1] > second_num_list[0]): 
-            return result 
+
+
+
+        if (num_list[1] > second_num_list[0]):
+            return result
         elif (num_list[1] == second_num_list[0]) &  (flag == 0):
             return  monthresult
         elif (num_list[1] == second_num_list[0]) &  (flag == 1):
-            return result 
+            return result
         else:
             return badresult
 
@@ -894,13 +867,13 @@ def word_filter(dictObject):
     new_counts = dict()
     for(key, value) in dictObject.items():
         if value >= 5: new_counts[key] = value
- 
+
     return new_counts
 
 def word_match(key,list,li,score,output):
     for x in list:
         if fuzz.token_sort_ratio(key.lower(),x.lower()) > 80:
-            li = False          
+            li = False
             print(output + " achieved!!!")
             print(fuzz.token_sort_ratio(key.lower(),x.lower()))
             print(key)
@@ -910,7 +883,7 @@ def word_match(key,list,li,score,output):
             break
         else:
             result = output + ": not included"
-    return li,score,result    
+    return li,score,result
 
 # word_matching is used for essential part
 # it will find the word that match the lists and return related result
@@ -929,7 +902,7 @@ def word_matching(dictObject):
     score = 0
     result = ["", "", "", "", "", ""]
     highlight = []
-    
+
     for(key, value) in dictObject.items():
         #print(key)
         if li1:
@@ -941,12 +914,12 @@ def word_matching(dictObject):
             li2,score,result[2] = word_match(key,list2,li2,score,"education")
             if li2 is False:
                 highlight.append(key)
-                
+
         if li3:
             li3,score,result[3] = word_match(key,list3,li3,score,"Employment History")
             if li3 is False:
                 highlight.append(key)
-            
+
         if li4:
             li4,score,result[4] = word_match(key,list4,li4,score,"Skill")
             if li4 is False:
@@ -966,16 +939,16 @@ def word_matching(dictObject):
 # word_match_Softskill is used for softskill part
 # the function will only approved the resume have the specific skill when more than half of word from the list is found in the resume
 def word_match_Softskill(key,list,li,score,output,counter):
-    final_output = "" 
+    final_output = ""
     for x in list:
         if fuzz.token_sort_ratio(key.lower(),x.lower()) > 80:
-            counter= counter + 1                  
+            counter= counter + 1
             print(fuzz.token_sort_ratio(key.lower(),x.lower()))
             print(key)
             break
-            
+
         if counter >= (len(list)/3):
-            li = False    
+            li = False
             score += 1
             print("score: ", score)
             final_output = output[0]
@@ -983,7 +956,7 @@ def word_match_Softskill(key,list,li,score,output,counter):
         else:
             final_output = output[1]
 
-    return li,score,final_output,counter 
+    return li,score,final_output,counter
 
 def word_matching_Softskill(dictObject):
     # dictObject variable must come from word_frequency result
@@ -1006,13 +979,13 @@ def word_matching_Softskill(dictObject):
         #print(key)
         if li1:
             li1,score,result[1],counter1 = word_match_Softskill(key,listCommunication,li1,score,output_Communication,counter1)
-        
+
         if li2:
             li2,score,result[2],counter2 = word_match_Softskill(key,listLeadership,li2,score,output_Leadership,counter2)
-        
+
         if li3:
             li3,score,result[3],counter3 = word_match_Softskill(key,listTeamwork,li3,score,output_Teamwork,counter3)
-    
+
     global scored_list
     scored_list[1] = section_Scored([4,4,4], [li1, li2, li3])*100
     result[0] = int(scored_list[1])
@@ -1055,6 +1028,7 @@ def highlightText(textArr, f, color):
 @app.route('/sw.js')
 def sw():
     return app.send_static_file('sw.js')
+
 
 if __name__ == '__main__':
     app.run()
